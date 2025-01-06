@@ -1,0 +1,206 @@
+---
+  title: "Flow Control"
+output: html_notebook
+---
+
+
+```{r}
+X <- 21
+Xvec <- c(1:10, "string")
+```
+
+```{r}
+if(X > 100){ #Is X greater than 100?
+  print("X > 100") #If True
+} else {
+  print("X <= 100") #If False
+}
+```
+
+```{r}
+if(X > 0){print ("yup")}
+```
+
+```{r}
+ifelse(X > 100, "X > 100", "X <= 100")
+```
+
+```{r}
+# Nested if and else statements account for more outcomes (like a branching tree for every __ statement)
+
+if(X > 100){
+  print("X > 100")
+  if(X > 200){
+    print("X > 200")
+  }
+} else {
+  if(X == 100){
+    print("X = 100")
+  } else {
+    print("X < 100")
+  }
+}
+
+```
+
+## Loops do the same thing repeatedly until the condition is met. They use the basic format for(){}
+
+
+```{r}
+for (i in 1:5){
+  print(paste(X,i,sep=":"))
+} #loop through numbers 1-5
+```
+
+```{r}
+for (i in Xvec){
+  print(i)
+} # loops the lements of a vector directly
+```
+
+```{r}
+for (i in 1:length(Xvec)){
+  print(Xvec[i])
+} # indicates the elements of a vector
+```
+
+### In each case there is a vector and the loop goes through each cell in the vector. The i variable is an object that gets eplaced with a new number in each loop iteration.
+
+
+## It may be useful to include a counter variable
+
+```{r}
+count1<-1
+count10<-1
+
+for(i in 1:5){
+  print(paste("count1 =", count1))
+  print(paste("count10 =", count10))
+  count1 <- count1+1
+  count10 <- count10*10
+}
+
+```
+
+```{r}
+countbefore <- 0
+countafter <- 0
+
+for(i in 1:5){
+  countbefore <- countbefore + 1
+  print(paste("before =", countbefore))
+  print(paste("after=",countafter))
+  countafter <- countafter + 1
+}
+```
+
+## Nested loops are loops inside of another, and must have counter variable placed in specific spots.
+
+
+```{r}
+LoopCount <- 0
+
+for(i in 1:3){
+  for(j in 1:2){
+    LoopCount <- LoopCount+1
+    print(paste("Loop =", LoopCount))
+    print(paste("i = ",i))
+    print(paste("j = ",j))
+  }
+}
+```
+
+## The while(){} loop is interated until  some condition is met inside of a loop - the exit condition
+
+## In bio, this is often used in optimization simulations untiol some optimum/threshold is reached (ex. equilibriums (Evolutionarily Stable Strategy), pop growth trajectories, mutation-selection equilibrium, etc.)
+
+## However, a exit condition may never be reached, so the computer runs an infiinite number of loops.
+
+```{r}
+count <- 0
+while(count < X){
+  print(count)
+  count <- count+1
+}
+```
+
+```{r}
+## %% returns the remainder of a division equation.
+
+for(i in 1:9){
+  if(i %% 3 ==0 ){
+    print(paste("Iteration:",i))
+  }
+}# divide by N and determine if the dividend is 0
+```
+
+
+# Some loops are very slow to run, so eventually faster version should be found.
+
+
+```{r}
+## A slow loop demonstrating the Central Limit Theorem (sampling 1000 number from a random normal distribuition and getting the average, repeat 5000X, and get the average of all these)
+
+
+Iters <- 500 ### Number of iterations
+OutVector <- NA
+Start <- Sys.time()
+for(i in 1:Iters){
+  TempMean <- NA
+  for(j in 1:1000){ ### One loop per sample
+    TempMean[j] <- rnorm(1)
+  }
+  OutVector[i] <- mean(TempMean)
+}
+Sys.time()-Start
+
+paste("Mean of means =",mean(OutVector))
+```
+
+```{r}
+Iters <- 500
+OutVector <- vector("numeric", Iters)
+Start <- Sys.time()
+for(i in 1:Iters){
+  TempMean <- vector("numeric",1000)
+  for(j in 1:100){ #One loop per sample
+    TempMean[j] <- rnorm(1)
+  }
+  OutVector[i] <- mean(TempMean)
+}
+Sys.time() - Start
+
+paste("Mean of means =", mean(OutVector))
+```
+
+
+```{r}
+## Even faster loop, using sapply() or tapply()
+
+Iters <- 500
+OutVector <- vector("numeric", Iters)
+OutMean <- function(x){
+  return(mean(rnorm(1000)))
+}
+Start <- Sys.time()
+OutVector <- sapply(OutVector, FUN = OutMean)
+Sys.time() - Start
+
+paste(mean(OutVector))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
