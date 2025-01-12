@@ -1,0 +1,372 @@
+
+---
+title: "Week 2 - Principal Component Analysis"
+output:
+  html_document:
+    df_print: paged
+---
+
+### PCA is a type of multivariate analysis
+### PCA is a type of unsup. ML model, used by ecologists and evo-biologists for dimnsion reduction
+### Basis for linear discriminant analysis, a type of sup ML
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+Lythrum <- read.csv("https://colauttilab.github.io/Data/ColauttiBarrett2013Data.csv", header=T)
+```
+
+#### Some functions in dplyr are masked because the stats package also has filter and lag
+
+
+```{r}
+#### Examine the data structure
+
+str(Lythrum)
+```
+
+#### Both Flwr (days to first flower) and FVeg (Plant size at first flower) was measured over many years and are mutivariate / multi-dimensional (D = 4 for 4 years).
+#### The Principal Components of a PCA are new vectors calculated as linear parts of the original vector measurements (the columns). For this, the the new axes must be 1) linear compOnentions of the input features X1...Xn (they are usually columns in a data.frame() object) and 2) uncorrelated; correlation = 0.
+#### PCA may redefine correlated preidtcors into uncorrelated PC axes which are the data vectors representing different combinations of input features.
+#### PCA does work best when there's collinearity amongst predictors; look at pariwise correlations to observe this which is achieved by making 2 different datasets.
+
+```{r}
+Flwr <- Lythrum %>%
+  select(starts_with("Flwr"))
+head(Flwr)
+```
+
+
+```{r}
+FVeg <- Lythrum %>%
+  select(starts_with("FVeg"))
+head(FVeg)
+```
+
+
+#### Find the correlation of the features
+```{r}
+cor(Flwr) 
+
+#### NAs appear due to missing data, so:
+
+cor(Flwr, use = "pairwise.complete.obs")
+```
+
+#### There are high cor-coef, which can be squared to get R-squared values
+### R2 is the amount of variation in one metric that can be explained by another
+
+```{r}
+round(cor(Flwr, use = "pairwise.complete.obs")^2,3)
+
+round(cor(FVeg, use = "pairwise.complete.obs")^2,3)
+```
+
+#### About 35-75% of the variation in one year can be explained using another's year's variation. These correlations can be visualized with bivariate plots, 
+#### To reorgaize data and use a single ggplot function to generate bivariate plots comparing each pair of years, a custom for loop function may be used to make a data frame compared against every other year of data, then facet this horizontally and vertically.
+
+
+### A key limitation for PCA is that only data rows with values in each column can be used, thus reducing smaple size.
+### This may be alleviaed by replacing NA with an average mof the data column (better for a few missing values), OR make educated gueses, such as using a linear model.
+```{r}
+Mod <- lm(Flwr09 ~ Flwr07 + Flwr08 + Flwr10, data = Flwr)
+summary(Mod)
+```
+
+#### About 72% of the 2009 variation can be explained from the other 3 years. Use the predict() to replace NA with this.
+
+```{r}
+Flwr <- Flwr %>%
+  mutate(Flwr07 = ifelse(is.na(Flwr07),
+                         mean(Flwr07, na.rm = T), Flwr07),
+         Flwr08 = ifelse(is.na(Flwr08),
+                         mean(Flwr08, na.rm = T), Flwr08),
+         Flwr09 = ifelse(is.na(Flwr09),
+                         mean(Flwr09, na.rm = T), Flwr09),
+         Flwr10 = ifelse(is.na(Flwr10),
+                         mean(Flwr10, na.rm = T), Flwr10))
+
+FVeg <- FVeg %>%
+  mutate(FVeg07 = ifelse(is.na(FVeg07),
+                         mean(FVeg07, na.rm = T), FVeg07),
+         FVeg08 = ifelse(is.na(FVeg08),
+                         mean(FVeg08, na.rm = T), FVeg08),
+         FVeg09 = ifelse(is.na(FVeg09),
+                         mean(FVeg09, na.rm = T), FVeg09),
+         FVeg10 = ifelse(is.na(FVeg10),
+                         mean(FVeg10, na.rm = T), FVeg10))
+```
+
+
+#### Next in a ML pipeline, we have to scale features to z-scores. First, calculate the covariance or correlation matrix, which correspond to scaled or unscaled features. Both matrices are symmetrical, with = numbers of dimensions and features.
+
+```{r}
+round(cor(Flwr),2)
+
+round(cov(Flwr),1)
+```
+
+### Covariance matrix has variances on a diagonal. Cor-matrix is scaled, so all value are between 0 and 1; diagonal doesn't affect PCA as all = 1.
+### Cor-matrix has a vector of 1 showing each variable is 100% correlations with itself. Cov-matric is from 0 to infinity and the diagonal variances have different values.
+### Cor-coef scales variables by subtracting the mean and dividing by sd, similra to z-scores.
+
+
+
+#### Now run the PCA
+
+```{r}
+FlwrPCA <- princomp(Flwr, cor=T)
+str(FlwrPCA)
+```
+
+### The output is a list object, including sd, loadings/eigenvectors that transform original features into the PCs, center/mean of each feature, scale/weighting applied to each feature, # observations / rows of data in the analysis.
+
+### Every PCA returns PC vectors or axes = # of input featurs. A set of eigenvectors transforms the original correlated observations into uncorrelated PC values with matrix multiplication.
+#### The matrix of 4 data-columsn in Flwr by eigenvector loadings produces 4 PC axes (Comp1 - Comp 4); their scores can graph the PC.
+
+```{r}
+head(FlwrPCA$scores)
+```
+
+```{r}
+## PC axes are uncorrelated
+
+round(cor(FlwrPCA$scores), 3)
+```
+
+### Each PC axis has an eigenvector of loadings that shows how each original feature was weighted. Ech axis ALSO has an eigenvalue, which quantifies how much variation of the original features is represented. This and the sd is shown in the summary. ### The 2nd row shows how much of the total variance is shown by each PC axis. This can be used for dimension reduction.
+### The 3rd row sums the proportional variances.
+
+```{r}
+summary(FlwrPCA)
+```
+
+```{r}
+## Another way to get the sd:
+
+round(sd(FlwrPCA$scores[,1]),2)
+
+## Square the sd to get the variance or PC eigenvalue
+
+round(sd(FlwrPCA$scores[,1])^2,2)
+
+```
+
+### A more quantitative way to plot variance across eigenvectors is with a Scree Plot
+
+```{r}
+PCloadings1 <- data.frame(Component=c(1:4),
+                         Eigenvalue = FlwrPCA$sdev^2)
+
+ggplot(aes(x = Component, y = Eigenvalue), data = PCloadings1) +
+  geom_point() + 
+  geom_line()
+```
+
+#### The graph shows a steep drop from 1,2 then a slower decline, good justification for focusing on the first eigenvector, PC1, which has almost 70% of the variation in flowering time.
+
+
+```{r}
+FVegPCA <- princomp(FVeg, cor=T)
+str(FVegPCA)
+
+PCloadings2 <- data.frame(Component=c(1:8),
+                         Eigenvalue = FVegPCA$sdev^2)
+
+ggplot(aes(x = Component, y = Eigenvalue), data = PCloadings2) +
+  geom_point() + 
+  geom_line()
+```
+
+
+```{r}
+FlwrFVeg <- cbind(Flwr, FVeg)
+
+FlwrFVeg <- scale(FlwrFVeg)
+
+FlwrFVeg
+
+BothPCA <- princomp(FlwrFVeg, cor = T)
+str(BothPCA)
+
+PCloadings3 <- data.frame(Component=c(1:8),
+                         Eigenvalue = BothPCA$sdev^2)
+
+ggplot(aes(x = Component, y = Eigenvalue), data = PCloadings3) +
+  geom_point() + 
+  geom_line()
+
+```
+
+
+### A eigenvector is similar to a linear model but without an intercept. INstead of a measured y variable, there are PC axes, each being a different linear combination of the original data column. Putting the 4 coefficients together creates the eigenvector. 
+### The coefficient are loadings and the eigenvector os a vector of those loadings.
+
+```{r}
+FlwrPCA$loadings
+```
+
+#### Here, plants with higher PC1 values have later flowering across all 4 years.
+#### For PC2, 3/4 have weak negative loadings, meaning they flowered later in 2007 compared to other years.
+
+### Eigenvector loadings are measures of how much a measurement loads onto a given PC axis, and higher magnitude have a stronger influence; the sign gives directions
+
+```{r}
+## To compare the loadings: 
+
+
+ggplot() + 
+  geom_point(aes(x = FlwrPCA$scores[,1], y = Flwr$Flwr07))
+
+cor(FlwrPCA$scores[,1], Flwr$Flwr07)
+
+
+ggplot() + 
+  geom_point(aes(x = FlwrPCA$scores[,1], y = Flwr$Flwr08))
+
+cor(FlwrPCA$scores[,1], Flwr$Flwr08)
+```
+
+```{r}
+ggplot() + 
+  geom_point(aes(x = FlwrPCA$scores[,2], y = Flwr$Flwr07))
+
+cor(FlwrPCA$scores[,2], Flwr$Flwr07)
+
+ggplot() + 
+  geom_point(aes(x = FlwrPCA$scores[,2], y = Flwr$Flwr08))
+
+cor(FlwrPCA$scores[,2], Flwr$Flwr08)
+
+```
+
+
+
+```{r}
+## To extract the first column of coef as the first 4 elements
+
+Load <- FlwrPCA$loadings[1:4]
+print(Load)
+```
+
+
+####
+
+```{r}
+testDat <- Flwr %>%
+  mutate(PCcalc = scale(Flwr07) * Load[1] + 
+           scale(Flwr08) * Load[2] + 
+           scale(Flwr09) * Load[3] + 
+           scale(Flwr10) * Load[4])
+
+testDat$Comp.1 <- FlwrPCA$scores[,1]
+
+ggplot(aes(x = Comp.1, y = PCcalc), data = testDat) + 
+  geom_point()
+```
+
+
+#### Flwr and FVeg are not independent variables - the biological mechanisms of them are correlated. Make a new PCA with all measurements across all years except 2007 which was missing data.
+
+
+```{r}
+## Decide which columns to keep:
+
+names(Lythrum)
+
+PCDat <- Lythrum [,c(2,6,12:23)]
+
+## Delete rows with missing data:
+
+PCDat <- PCDat %>% 
+  na.omit
+
+names(PCDat)
+
+## Location (site) and Population are not measurements for the PCA
+
+PCfull <- princomp(PCDat [,3:14], cor = T)
+summary(PCfull)
+```
+
+
+```{r}
+loadings(PCfull)
+```
+
+
+#### Retain the first 2 PCs instead of making a Scree Plot. These axes are rescaled versions of the input data, so they should be new variabels that are added back to the dataset.
+
+```{r}
+PCDat$PC1 <- PCfull$scores[,1]
+PCDat$PC2 <- PCfull$scores[,2]
+
+ggplot(aes(x = PC1, y = PC2, colour = Site, shape = Site), data = PCDat) + 
+  geom_point()
+```
+
+#### There is more variation along the PC1 axis than the PC2 axis, indicating environmental differences / plasticty in the phenotypic measurements in the PCA. To understand what explains the variation, plot the features separately.
+
+```{r}
+ggplot(aes(x = PC1, y = PC2, colour = Pop, shape = Pop), data = PCDat) + 
+  geom_point() + 
+  facet_grid(row = vars(Site))
+```
+
+#### Now each genetic pop can be viewed differently, thus the pop-level genetic differentiation for traits in PC1 can be seen.
+
+#### Another thing to be studied is PC1 or PC2 as a predictor or response variable in a linear model.
+
+```{r}
+Mod <- lm(PC1 ~ Pop * Site, data = PCDat)
+summary(Mod)
+```
+
+```{r}
+anova(Mod)
+```
+
+#### Both Site and Pop affect PC1, explaining almost 7-% of the variation in PC1.
+
+
+### The eigenvalue is the MAGNITUDE of an eigenvector, explaining the AMOUNT of variation captured by a PC axis.
+### The eigenvector is a direction in multivariate space with DIMENSION EQUAL TO NUMBER OF INPUT FEATURES. This meant 4-D space for Flwr and FVeg each and 8-D space when they were combined: one dimension for each measurement in each year. 
+### These multi-dimensions can all be visualized with a projection. Consider how a movieprojector PROJECTS a 3-D image and space onto 2-D space; the same can be done for the many dimensions of a PCA.
+
+#### Calculate these with autoplot() from ggfortify().
+
+```{r}
+library(ggfortify)
+
+autoplot(PCfull)
+
+autoplot(PCfull, data = PCDat, colour = "Site")
+
+autoplot(PCfull, data = PCDat, colour = "Site", 
+         loadings = T, loadings.label = T)
+```
+
+#### The last code projects the eigenvectors to see which measurements contribute the most to PC1 VS PC2.
+#### PC1 is more affected by all 3 measurements while component 2 is more affected by InfMass and Flwr. It seems the same measurements in different years have very similar vectors, meaning the same measurements in different years are collinear.
+
+
+### PCA also has important assumptions. 1) Input variables are multivariate normal - when graphed, they are dense in the middle of a circle/oval and become less common towards the edges, and to achieve this the variables may need to be transformed, 2) major axes of variation are the axes of interest
+
+### PCA gives the basis for other analyses in ML, such as Uniform Manifold Approxiamation and Projection (UMAP) that allows for non-linear trasnformations to group data based on dissimilarity, though there is no scaling option.; Corresponding Analysis where you can compare separate PCAs to see how the data affects the other, etc.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
