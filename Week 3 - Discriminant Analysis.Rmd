@@ -1,0 +1,145 @@
+---
+title: "Week 3 - Discrmininant Analysis"
+output: html_notebook
+---
+
+#### Last week was about using PCA to identify uncorrelated axes of variation, seeing how groups post-hoc mapped onto the major PC axes
+#### This week is about Regularized Discrminant Analsysis as an extension of PCA that incorporated a categorical varaible for SUPERVISED LEARNING (you know the groups aheda of time and find a model to distinguish them). With RDA, the 1st PC axis is adjusted by axis loadings, then a linear or nonlinear wquation to predict the repsonse variable is applied. There is ay least one binary response variable and many continuous features (a variable can be redefined with N categories using N-1 binary variables).
+
+### Discmrinant Analysis (DA) = Linear Discrminant Analysis (LDA) = Discrminant Function Analysis (FDA)
+### LDA is a generalization of Fisher's Linear Discrminant Function or Quadratic Discrminant Analysis (QDA).
+### QDA allows for nonlinear predictors by including a turning parameter for unequal variances in the features predictions.
+### Both LDA and QDA were eventually generalized to Regularized Discmrinant Analysis (RDA) by adding a second tuning parameter, represented by sigma and gamma.
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(MASS)
+
+## dplyr and MASS have some common functions, so you may have to type package name::function()
+
+source("http://bit.ly/theme_pub")
+theme_set(theme_pub())
+
+Virus <- read.csv("https://colauttilab.github.io/Data/ViralMetData.csv", header=T)
+```
+
+
+#### This week's data is about the nasal metabolome, where metabolic profiles of patients are studied with an LDA to categorize patients with a viral infection (96% accuracy) and distinguish COVID cases from infleunza and RSV (85% accuracy).
+### Metabolomics = analysis of many chem profiles
+
+```{r}
+names(Virus)
+str(Virus)
+```
+
+#### Sample.Name – A unique identifier for each sample
+#### Batch.Number – A unique number for each ‘batch’. All the samples with thesame ‘batch’ were run on the same equipment at the same time. 
+#### Class.name – This is the group classifier, and there are five groups corre-sponding to the type of infection or control
+#### VTM – this is just the liquid used to stabilize the nasal swab. It is purchasedfrom a biotech company so the exact chemical profile is unknown, but includ-ing it in the analysis acts as one type of control
+#### Control – nasal swabs from patients with no known infection
+#### COVID19 – patients who tested positive for COVID-19 via qPCR
+#### Influenza – patients who tested positive for Influenza via qPCR
+#### RSV – patients who tested positive for Respiratory Syncytial Virus (RSV) viaqPCR
+#### Age, Sex – Age and sex of the patient
+#### Ct is short for ‘count’ or ‘count threshold’ and it a measure of viral loadin qPCR; the number of PCR cycles rune before target sequnece reaches detection threshold; higher CT = lower viral load (qPCR = real-time PCR but DOES NOT EQUAL reverse-transcription PCR)
+#### The other columns each show the relative concentration of a specific metabolite/chemical in the metabolome.
+
+
+```{r}
+ggplot(aes(x = Pyruvic.acid), data = Virus) + 
+  geom_histogram(bins = 30)
+```
+
+
+#### This is a good set of data for log-normal transformation with many values below 10 and a few values more than 90. This will bring values closer together so the distribution looks more normal.
+
+```{r}
+ggplot(aes(x = log(Pyruvic.acid+1)), data = Virus) + 
+  geom_histogram(bins = 30)
+```
+
+
+
+```{r}
+### Quality checks and modifications to fit assumptions of multivariate normality
+
+Virus$Batch.Number <- as.factor(Virus$Batch.Number) #set variable as a factor
+
+Response <- Virus %>% 
+  select(1:6) #separate response variables / FEATURES from predicting traits
+```
+
+### YOU NEED TO SPECIFY SELECT FOR dplyr
+
+```{r}
+Response <- Virus %>%
+  dplyr::select(1:6)
+Features <- Virus %>%
+  dplyr::select(-c(1:6))
+```
+
+
+#### To verify that the correct columns are subset in each dataset, use head(), str(), and names()
+
+```{r}
+head(Response)
+str(Response)
+names(Response)
+
+head(Features)
+str(Features)
+names(Features)
+```
+
+
+```{r}
+Scaled <- Features %>%
+  mutate_all(scale) # regular scaling
+```
+
+```{r}
+Scaled %>%
+  select_if(function(x) any(is.na(x))) %>%
+  names()
+```
+
+#### Since everything has been scaled to a mean of 0 with 7 columns with missing data, dplyr may be ised to replace missing data with 0.
+
+```{r}
+ScalComp <- Scaled %>%
+  mutate(Putreiscine = ifelse(is.na(Putrescine), 0, Putrescine),
+         Leu = ifelse(is.na(Leu), 0, Leu),
+         Asp = ifelse(is.na(Asp), 0, Asp),
+         Lactic.acid = ifelse(is.na(Lactic.acid), 0, Lactic.acid),
+         Butyric.acid = ifelse(is.na(Butyric.acid), 0, Butyric.acid),
+         Succinic.acid = ifelse(is.na(Succinic.acid), 0, Succinic.acid),
+         Pyruvic.acid = ifelse(is.na(Pyruvic.acid), 0, Pyruvic.acid))
+```
+
+
+#### Now, check the QA/QC output
+
+```{r}
+mean(ScalComp$Gly)
+
+sd(ScalComp$Gly)
+
+ggplot(aes(x = Gly), data = ScalComp) + 
+  geom_histogram(bins = 30)
+```
+
+#### Data has a mean close enough to 0 and an sd to 1 that it can be used - it;s usually not perfect.
+
+
+
+
+
+
+
+
+
+
+
+
