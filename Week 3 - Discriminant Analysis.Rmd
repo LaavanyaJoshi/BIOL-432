@@ -1,6 +1,8 @@
 ---
 title: "Week 3 - Discrmininant Analysis"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 #### Last week was about using PCA to identify uncorrelated axes of variation, seeing how groups post-hoc mapped onto the major PC axes
@@ -67,8 +69,7 @@ ggplot(aes(x = log(Pyruvic.acid+1)), data = Virus) +
 
 Virus$Batch.Number <- as.factor(Virus$Batch.Number) #set variable as a factor
 
-Response <- Virus %>% 
-  select(1:6) #separate response variables / FEATURES from predicting traits
+## The following won't work: Response <- Virus %>% select(1:6) - it won't separate response variables / FEATURES from predicting traits
 ```
 
 ### YOU NEED TO SPECIFY SELECT FOR dplyr
@@ -102,14 +103,14 @@ Scaled <- Features %>%
 ```{r}
 Scaled %>%
   select_if(function(x) any(is.na(x))) %>%
-  names()
+  names() # this only CHECKS for missing data
 ```
 
 #### Since everything has been scaled to a mean of 0 with 7 columns with missing data, dplyr may be ised to replace missing data with 0.
 
 ```{r}
 ScalComp <- Scaled %>%
-  mutate(Putreiscine = ifelse(is.na(Putrescine), 0, Putrescine),
+  mutate(Putrescine = ifelse(is.na(Putrescine), 0, Putrescine),
          Leu = ifelse(is.na(Leu), 0, Leu),
          Asp = ifelse(is.na(Asp), 0, Asp),
          Lactic.acid = ifelse(is.na(Lactic.acid), 0, Lactic.acid),
@@ -131,6 +132,226 @@ ggplot(aes(x = Gly), data = ScalComp) +
 ```
 
 #### Data has a mean close enough to 0 and an sd to 1 that it can be used - it;s usually not perfect.
+
+
+```{r}
+dim(ScalComp) #shows the dimensions of sclaed features
+```
+
+#### Ther are almost as many features (k = 124) as rows of observations (n = 221).This means putting this info into an RDA could overfit the model (similar to false discovery problem if a different linear model for each feature is used as a predictor). 
+#### Therefore, use the PCA to reduce dimensionality of the data. Run a PCA and keep only major axes. Variables have LAREADY BEEN SCALED, so we DON'T NEED cor = T
+
+```{r}
+PCA <- princomp(ScalComp, cor = F)
+summary(PCA)
+```
+
+#### NOTE that the first 9 axes give 80% of the variation in metabolite profiles: the dataset issimplified but it's not perfect
+#### First, 10 PC axes is a lot to visualize. Second, most of the variation may be due to patient differences, NOT the respiratory infections., meaning the first 10 axes may not capture the divergence.
+#### These problems are addressed by DA. Re-scale the PC axes to find component aces that best distinguish patient with different infections, but reduce the number of axes to avoid spurious correlations. Here, exclude metabolites that are unlikely to distinguish amongst infection status.
+#### With a categorical response variable, the categories can screen for features more likely to distinguish patients with different viruses. Look at the predictive power of each feature, and keep only those that are "reasonably good," a criteria that changes for #features, model, etc.
+#### You could use a simple linear model for each features, but this would warrant making 124 models. Therefore, convert data to long format.
+
+```{r}
+library(tidyr)
+
+LongVirus <- ScalComp %>%
+  mutate(Class.name = Virus$Class.name) %>% #Add response variable, creating the linear model
+  pivot_longer(cols = -Class.name,
+               names_to = "Chem", #Does the feature name
+               values_to = "Conc") #Does the observed value
+
+str(LongVirus)
+```
+
+#### The original 221 rows were repeated for each of the 124 features, making 27404 rows
+
+```{r}
+LongVirus %>% 
+  group_by(Chem) %>%
+  summarize(MeanConc = mean(Conc),
+            sd = sd(Conc),
+            max = max(Conc),
+            min = min(Conc))
+```
+
+#### We need to run separate linear models and also extract their p-values. The ANOVA function gives the p-values but also an outputwhich is an object and can thus be subsetted into a new data frame or vector. This may be used in a for loop 
+
+```{r}
+anova(lm(ScalComp$Gly ~ Response$Class.name))[1,"Pr(>F)"]
+
+PVals <- LongVirus %>% 
+  group_by(Chem) %>% 
+  summarize(P = anova(lm(Conc ~ Class.name))[1,"Pr(>F)"]) %>%
+  dplyr::select(Chem,P)
+```
+
+#### Check the first few rows to see if it works
+
+```{r}
+head(PVals)
+```
+
+#### When selecting a cut-off value, consider: a smaller p-valuegives a more strict cut-off and a stronger prediction, but less features will be retained. First, plot a histogram.
+
+```{r}
+ggplot(aes(x = P), data = PVals) + 
+  geom_histogram(bins = 30)
+```
+
+#### About 40 features are close to 0, meaning many of the metabolites - OR FEATURES - differ amongst groups. However, these 40 features, insetad of 124, is still a lot for 221 observations. 
+#### Consider the biology and goal of this model. Use DA to find chem signatures that distinguish patient or control samples from these 5 groups.
+
+```{r}
+unique(Virus$Class.name)
+```
+
+### To understand DA, think in terms of binary cetgories.
+#### Consider everything as a separate but related goal, such as control stabilizing solution (VTM) from patient samples (all others), distinguish COVID from healthy patients, and distinguish COVID from other illnesses.
+
+```{r}
+PCOV <- LongVirus %>%
+  filter(Class.name %in% c("COVID19", "Influenza", "RSV")) %>%
+  mutate(NewGroup = replace(Class.name, Class.name == "Influenza", "NonCOV")) %>%
+  mutate(NewGroup = replace(NewGroup, Class.name == "RSV", "NonCOV")) %>%
+  group_by(Chem) %>%
+  summarize(P = anova(lm(Conc ~ NewGroup))[1,"Pr(>F)"]) %>%
+  dplyr::select(Chem,P)
+
+ggplot(aes(x = P), data = PCOV) + 
+  geom_histogram(bins = 30) + 
+  xlim(0,0.1)
+```
+
+#### The result is 14 fetaures with p < 0.05, so defin a new features dataset.
+
+```{r}
+Keep <- PCOV %>%
+  filter(PCOV$P < 0.05)
+
+Keep <- paste(Keep$Chem) # gives a vector of chem names to select columns
+
+ScaledSub <- ScalComp %>%
+  dplyr::select(all_of(Keep))
+names(ScaledSub)
+```
+
+### With the subset of features, the LDA can be run. the lda() function is from the MASS package - 'equivalent' to princomp for PCA.
+### To specify the model, use Y ~ . format, where Y is the categorical variable and . means "all other columns of data.. Specify the data object with the data parameter
+
+
+```{r}
+RDA <- Response %>%
+  mutate(NewGroup = replace(Class.name, Class.name != "COVID19", "NonCOV")) # Since there are responses and features in 2 different objects, you don't need the data = portion
+
+LDA <- lda(x = ScaledSub, grouping = RDA$NewGroup) #run the model
+```
+
+
+### NOTE how more time was spent processing the data than actually running the model, which was just one line of code. This represents data science in the real world (Quality Assurance and Quality Control)
+
+```{r}
+str(LDA)
+
+summary(LDA)
+```
+
+### Unlike lm(), the summary() function for an lda object summarizes the object itself, no the model. Left column is the names of the list items and "Length" gives number of elements.
+
+```{r}
+LDA$counts
+```
+
+### Scaling shows the factor loadings, aka LD eigenvectors.
+#### COMPARE with PCA eigenvectors: PCA would give 14 eigenvectors, while one LD eigenvector is obtained for the 14 features. Both eigenvector types are scaled vectors with loadings for each of the 14 features. However, the number of axes in an LDA are given by # categories of the response variable, NOT number of features. For instance, running the LDA on the 5 groups of class.name (which has 5 types of infection statuses), the result is 4 LDA axes, beause you need at least 4 binary variables to distinguish the 5.
+#### The eigenvector loadings show how each feature contributes to the LD1 aces, like PC eigenvector loadings, but they're scaled to differentiate between the 2 groups, while PCA is for all features.
+
+### PCA: # of eigenvectors = # of PC axes = # of features
+### LDA = # of eigenvectors = # of LDA axes = # of Group Categories - 1
+
+```{r}
+LDA$scaling
+```
+
+#### Higher values of LD1 are determined mostly by higher values of C2, Carnosine, Tyrosine, and lower values of Betain, C16, Taurine, LYSOC18. INterpreting these loadings and researching the metabolites contributes to the advancement of biological knowledge.
+
+### LDA output does not give scores - you have to make predictions from data.
+
+```{r}
+Pred <- predict(LDA)
+summary(Pred)
+```
+
+### The class and x predictions have the same length as the # observations as dataset.
+
+### x object = predicted score for LDA axis
+
+```{r}
+head(Pred$x)
+```
+
+### Class object = predicted category
+
+```{r}
+head(Pred$class)
+```
+
+#### Vectors have the same length because LD1 score predicts the category (COVID or not) for every individual.
+
+
+### Use a confusion matrix to check the accuracy; this can indicate the accuracy, specificity, and sensitivity of the LDA model.
+
+```{r}
+CatDat <- data.frame(Observed = as.factor(RDA$NewGroup),
+                     Predicted = Pred$class)
+table(CatDat)
+```
+
+### The posterior probability is a concept in Bayesian stats, relating to the assigning of each observation to each group, measuring the confidence of the model. Values closer to 0 or 100 % are of higher confidence belonging to one group or another.
+
+```{r}
+Post <- data.frame(Pred$posterior)
+head(Post)
+```
+
+#### In all 6 cases, there is a more than 95% probability that the individual belongs ot the NonCOV group. The confidence of the model predictions can be viewed by plotting the posterior probabilities.
+
+```{r}
+Post$Group <- RDA$NewGroup
+ggplot(aes(x = COVID19, fill = Group), data = Post) + 
+  geom_histogram(bons = 30, position = "dodge") + 
+  facet_wrap(vars(Group))
+```
+
+#### This model does better at predicting non-COVID cases than COVID cases
+
+#### The x-axis is the predicted probability the patient has COVID. Cmompare this to the LD1 scores.
+
+```{r}
+Post$LD1 <- as.vector(Pred$x)
+ggplot(aes(x = LD1, y = COVID19, colour = Group), data = Post) + 
+  geom_point(shape = 21, alpha = 0.3)
+```
+
+#### The porbability is a nonlinear function of LD1. A new patient may look at their metabolite profile to predict if they have COVID; policy is usually based on a firm choice. 
+#### When asking which value of LD1 should categorize the pateint, one answer is the point along LD corresponding to 0.5 on the y-axis. Alternatively, one may want to error on the side of caution to limit the false-negative rate
+
+### The different threshold values of LD1 on the number of false positives VS false negatives is shown in the Receiver-Operator Curve graph.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
