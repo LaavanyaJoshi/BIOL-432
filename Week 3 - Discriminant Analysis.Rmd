@@ -338,23 +338,190 @@ ggplot(aes(x = LD1, y = COVID19, colour = Group), data = Post) +
 
 ### The different threshold values of LD1 on the number of false positives VS false negatives is shown in the Receiver-Operator Curve graph.
 
+### The ROC is a measure of model performance based on rates of false positives VS negatives. To find the cruve, set a value of LD1, look at the confusion matrix, calculate sensitivity VS specificity at a given value of LD1. Repeat for different values of LD1, and graph the results.
+
+```{r}
+library(pROC)
+
+plot.roc(Group~LD1, data = Post)
+```
+
+#### On the left side, it starts with 100% specificity and 0% sensitivity. After specificity = 0.8, much specificity is sacrificed for small increase in sensitivity.
+
+### The ROC may have a True Positive Rate (TPR) on y-axis and False Positive Rate (FPR) on x-axis, ranging from 0-1. These graphs are equivalent bevaise TPR = sensitivity and FPR = specificity.
+### The curve for a 100% accurate model would be a straight vertical line with 100% of both.
+
+### One can measure the Area Under the ROC (AUROC or AUC) which is a single value that quantifies the performance of the model, shown by the ROC.The random model is a simple triangle with a min AUC = 0.5. As model improves in accuracy, one appraoches a square with 100% accuracy across all values of specificity, so max value of 1.
+
+```{r}
+auc(Group~LD1, data = Post) #also from the pROC package to get the area
+```
+
+#### The model can thus predict if a pateint has COVID with 93% accuracy. This isn't bad, but it's inflated by an unbalanced sample size.
 
 
+### To expand the model to look at all different classes, set binary axes and run a separate LDA for each.
+
+```{r}
+LDAMulti <- lda(x = ScalComp, grouping = RDA$Class.name)
+summary(LDAMulti)
+```
+
+#### Now there are 5 categories and 4 LD axes, each being like a mini-LDA for each category VS all others grouped together.
+
+### Like for PCA, a score can be calculated for each observation by multiplying standardized features values by its factor loading.
+### The QDA is a nonlinear RDA if groups have different variances and means. It scales transformation matrix that calculates LD axes. "Quadratic" is the predictor, unlike linear LD1 axis in LDA. 
+#### Recall we grouped VTM and uninfected with Influenza and RSV, which are biologically heterogenous and more variable than COVID.
+
+```{r}
+QDA <- qda(x = ScaledSub, grouping = RDA$NewGroup)
+summary(QDA)
+
+QDApred <- predict(QDA)
+summary(QDApred)
+```
+
+### However, this summary lacks the linear predictor; predictions become nonlinear, meaning an ROC or AUROC.
+
+```{r}
+QDAcon <- data.frame(Obs = as.factor(RDA$NewGroup), Pred = QDApred$class)
+table(QDAcon) #new confusion matrix for predictions
+```
+
+### Comparing the two shows the trade-off between prediction and interpretability. QDA is better at predicting the patient category but LDA is more interpretable. So, this matrix performs better than the LDA.
+
+### The Regularized Discrminant Analysis (RDA), a generalization that includes LDA and QDA. It requires the tuning parameters sigma and gamma.
+### The lambda value is between 0 and 1. 0 is closer to QDA and 1 is closer to LDA. Gamma tunes everything towarda the average variance of the features. This results in a range of mdoels with 4 special cases.
+### LDA results when gamma = 0 and lambda = 1, using a pooled covariance estimate
+### QDA results when gamma = lambda = 0, using individual covariances for each group.
+### When gamma = 0, lambda defines how much the individual groups should have separate covariance structures. For PCA, a single covariance matrix is used for all samples, scaled to a correlation matrix, equaivalent to a covariance matrix of z-scores.
+### This gets refined during ML appraoches
+### UNLIKE LDA, RDA can be applied to data with more features than observations, because it uses a regularized covariance matrix, not a covariance matrix like LDA and PCA.
+### When choosing values for lambda and gamma, ML allows for cross-validation to find values.
+
+```{r}
+library(klaR)
+library(caret)
+library(lattice)
+```
+
+### One way to optimize the tuning parameters is to set a range of values for each, run a model wth each combination of values, then compare the model fits = GRID SEARCH
+### However, grid search warrants a number of models that increases exponentially with the number of parameters and degree of precision needed in parameters, as grid lines get smaller or # features increases. Therefore, it's mainly used for simpler models.
+### Often, a good model will do, even if it's not the best model.
+### A random search may be used - randomly selecting values along a range of 0 to 1 for each parameter, running the model, then measuring performance
+
+```{r}
+CTL <- trainControl(method = "LOOCV", #sampling method - LOOCV is used because there aren't that many observations
+                    classProbs = T, #specifies we need class probabilities specific to each subsample
+                    verboseIter = F, #avoids giving more detailed feedback
+                    search = "random") #specifies a random earch; an alternate would be grid
+
+str(CTL)
+```
+
+### If the train function takes too long, reduce tuneLength to a smaller number of 3/4
+
+```{r}
+set.seed(432)
+randomRDA <- train(x = ScaledSub, y = RDA$NewGroup,
+                   method = "rda",
+                   metric = "Accuracy",
+                   tuneLength = 24,
+                   trControl = CTL)
+randomRDA
+```
+
+### WHY DOES THE ABOVE TAKE SO LONG?? We're using random values to tune parameters, LOOCV is used on observations, and then this is repeated for new values. Therefore, only 24 parameter combinations are tested.
+#### The results show a list of values for different combinations of values for gamma and lambda, with accuracy estimated suing cross-validation.
 
 
+### The kappa column is an adjustment of the accuracy - important for ML and assessing model accuracy. It goes from -1 to 1. 0 means the model is no better than chance and 1 means perfect accuracy. Negative values mean the model performs less than chance.
+#### The kappa metric addresses the issue of uneven samples sizes for COVID vs non-COVID
+### Cohen's k measure inter-rater reliability; more robust to random sampling of imbalanced categories compared to percet accuracy but harder to interpret
+
+### Convert the table to a graph for visualization and interpretation. Graph gamma and lambda as x and y axes, then use accuracy or kappa as a sclaing vector for size or colour. 
+
+```{r}
+ggplot(randomRDA) + 
+  theme(legend.position = "bottom")
+```
+
+#### Size correpsonds to model accuracy.
+
+```{r}
+ggplot(data = randomRDA$results, aes(x = gamma, y = lambda, size = Kappa)) + 
+  geom_point() + 
+  theme(legend.position = "bottom")
+```
+
+#### kappa is higher if gamma is lower and lambda is higher. Setting gamma at 0 and lambda at 1 just creates the LDA, which is more interpretable and thus ideal.
 
 
+### Adjusting the tuning parameters will yield something other than a QDA or LDA
+```{r}
+RDAmod <- rda(x = ScaledSub, grouping = RDA$NewGroup,
+              regularization = c(gamma = 0.5, lambda = 0.9))
+summary(RDAmod)
+```
+
+### This yields more list items than QDA, including estimated error rate, individual group covariance, and pooled covariances
 
 
+### RECALL the issue of overfitting. For RDA, this was avoided with cross-validation. Here, we might aplit data into training and validation sets, but an ideal way to do this is to select every Nth row. For instance, divide row number by 2.
+```{r}
+Rows <- c(1:nrow(RDA))
+Train <- Rows %% 2 == 1 # Odd numbers have a remainder of 1 and go into train object
+Validate <- Rows %% 2 == 0
+
+head(RDA[Train,])
+
+head(RDA[Validate,])
+```
+
+### For more complex models, use a larger number of observations and divide by a larger number (ex. 4)
+
+### Now, run code on Train, and mak predictions for Validate
+
+```{r}
+set.seed(432)
+randomRDA2 <- train(x = ScaledSub[Train,], y = RDA$NewGroup[Train], # specifying specific rows that correspond to Train; first set has a comma because input object is a data matrix, but the object is a vector in the second set
+                    method = "rda",
+                    metric = "Accuracy",
+                    tuneLength = 24,
+                    trControl = CTL)
+randomRDA2
+```
+
+```{r}
+ggplot(randomRDA2) + 
+  theme(legend.position = "bottom")
+```
+
+### Finally, run the model on the training dataset
+
+```{r}
+RDAmod2 <- rda(x = ScaledSub[Train,], grouping = RDA$NewGroup[Train],
+               regularization = c(gamma = 0.6, lambda = 0.25))
+```
 
 
+### To validate the model, generate the confusion matrix for Validate
+```{r}
+Pred <- predict(RDAmod2, ScaledSub[Validate,])
+str(Pred)
+```
 
+```{r}
+CatDat <- data.frame(Obs = as.factor(RDA$NewGroup[Validate]),
+                     Pred = Pred$class)
+table(CatDat)
+```
 
+```{r}
 
+```
 
-
-
-
+### All these methods of cross-validation have parallels with lmer(), and these are all part of a general modelling problem called parameter estimation. Other examples include Bayesian optimization, genetic algorithms, gradient descent, etc.
 
 
 
