@@ -1,5 +1,5 @@
 ---
-title: "Week 3 - Discrmininant Analysis"
+title: "Week 3 - Discriminant Analysis"
 output:
   html_document:
     df_print: paged
@@ -522,6 +522,49 @@ table(CatDat)
 ```
 
 ### All these methods of cross-validation have parallels with lmer(), and these are all part of a general modelling problem called parameter estimation. Other examples include Bayesian optimization, genetic algorithms, gradient descent, etc.
+
+
+
+----------------------------------------------------- LECTURE ----------------------------------------------------------
+
+
+#### RECALL: PCA has PC's, which may be plotted along both x- and y- graphs (PC1 AND PC2 on the same graph). The more PCs there are, more graphs are needed. For instance, 3 warrants 3 graphs, one for each combo.
+#### DA means there are groups and we're finding the linear features of ecah group. There may not be perfect alignment with the PC
+#### DA is about how well they discrminate between groups - separation. 
+#### In DA, there's always 1 fewer DA axes than number of groups.
+#### In PCA, the number of axes = # features
+#### In PCA, the loadings lead to eigenvectors lead to graphs
+#### In LDA, raw data * eigenvector = predictions. The prediction IS THE SCORE that can assign the probability.
+#### QDA and RDA are additional transformations that make the relationship non-linear.
+#### RDA is regularized DA, meaning it captures many special traits. It has 2 tuning paarmeters: lambda and gamma, which bring in the ML. 
+#### RDA uses techniques such as cross-validation (try different valeus) to choose values for the final model.
+#### NOTE! Tuning and cross-validation are different. Tuning searches parameters and their space, while cross-validation is about checking biases through re-sampling data. Both check the fit of the data.
+#### RECALL: Bias VS variance, as more complex models may have less bias but also less variance.
+
+#### ROC plots the accuracy of a given model. It's not necessarily showing the scores. Both of these are also different from the prediction from raw data * eigenvector, which is about the model's confidence in its accuracy.
+
+
+
+
+#### Next week is about support vectors and decision trees, final part of ML.
+
+```{r}
+# For no reason bc Github is weird
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
