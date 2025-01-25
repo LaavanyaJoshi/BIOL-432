@@ -1,0 +1,228 @@
+---
+title: "Week 4 - Support Vector Machines"
+output: html_notebook
+---
+
+### Previously, OCA was explored for dim-red in correlated traits, and 3 types of Discrminant Analaysis (LDA, RDA, QDA) for prediction.
+### PCA is unsupervised ML since classes aren't predicted with response variables. Bivariate plots visualize the [first 2] PC axe, etc. but these weren;t in the actual model.
+### LDA, RDA, and QDA are supervised ML bc they use a categorical response variable that fits the models. LDA makes a component axis (LD1) and associated eigenvector similar to PC axes and eigenvector. HOWEVER, the PC eigenvector maximizes variation IN ALL features while LD eigenvector loadings maximize variance BETWEEN classification groups.
+### Going from LDA to RDA, QDA loses interpretability, but models are more complex and better predictors - they optimize classification.
+
+### SVM are a different type of ML model for classification. They're similar to residual error, but insteda of fitting a regression line through data by minimizing the residual error, they fit a dyperplane between data and maximize distance between groups.
+### There are 3 related types of SVM: maximum marginal classifiers (MMC), support vector classifiers (SVC); both of these are special cases of support vector machines (SVM). Insteda of explaining variation with lines or curves to the predictors/features, these find linear or curved hyperplanes that distinguiches categories.The 3 types differ in how the hyperplane is fit and if he data is first transformed to allow for nonlinear relationships.
+### Hyperplane = geometric shape with dimension equal to number of features minus 1. It's a surface the represents the classes of interest.
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+source("http://bit.ly/theme_pub")
+theme_set(theme_pub())
+```
+
+
+```{r}
+set.seed(234) # seed value for random number generator - the starting point of 234
+PDat <- data.frame(Group = c(rep("A", 50), rep("B", 50)),
+                   X1 = rnorm(100, mean = 0),
+                   X2 = rnorm(100, mean = 0))
+
+PDat$X1[PDat$Group=="A"]<- PDat$X1[PDat$Group=="A"] - 4
+PDat$X2[PDat$Group=="A"]<- PDat$X2[PDat$Group=="A"] + 4
+
+ggplot(aes(x = X1, y = X2, colour = Group), data = PDat) + 
+  geom_point(aes(shape = Group)) + 
+  geom_abline(intercept = 5, slope = 2,
+              colour = "grey60", linewidth = 1.5) + 
+  geom_smooth(method = lm, se = F, linewidth = 2, colour = "red", linetype = "dashed")
+```
+
+#### Red line shows the linear model prediction for lm(X2 ~ X1), similar to PC1, as both fit a line through data.
+#### Gray line shows 1-D hyperplane representing a max. marginal classifier that maximizes distance between categories.
+
+### If a third feature is added, the hyperplane would have 2 dimensions. With these 2D and 3D examplesm any number of features k can be added to define points in a k-dimensional space, that can be separated with a (k-1) dimensional hyperplane.
+### Regression lines or curves of LM or GAM can be fit with Least Squares Maximum Likelihood or restricted max likelihood for mixed models
+### MMC, SVC, and SVM use different optimization algorithms
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+source("http://bit.ly/theme_pub")
+theme_set(theme_pub())
+
+library(e1071) # this is for support vectors
+
+Virus <- read.csv("https://colauttilab.github.io/Data/ViralMetData.csv", header = T) # same from Week 3 - DA
+```
+
+
+```{r}
+Resp <- Virus %>% 
+  dplyr:: select(Class.name) %>%
+  filter(Class.name %in% c("COVID19", "Influenza", "RSV")) %>% 
+  mutate(Class.name = replace(
+    Class.name, Class.name %in% c("Influenza", "RSV"), "NonCOV")) %>%
+  mutate(Class.name = replace(
+    Class.name, Class.name == "RSV", "NonCOV"))
+  
+Features <- Virus %>%
+  filter(Class.name %in% c("Covid19", "Influenza", "RSV")) %>% 
+  dplyr::select(c("Betaine", "C14.1OH", "C16.1OH", "C2", "C7DC", "Carnosine", "Cit", "Glucose", "LYSOC16.0", "LYSOC18.0", "Met.SO", "Putrescine", "Taurine", "Tyramine"))
+
+ScalComp <- Features %>%
+  mutate_all(scale)
+```
+
+```{r}
+ScalComp[is.na(ScalComp)] <- 0 
+```
+
+# replaces all NAs with 0; IN THIS CASE it replaces each feature with its mean, because the features have already been sclaed to a mean of 0 and an SD of 1
+
+```{r}
+Virus2 <- ScalComp %>% 
+  mutate(Class=as.factor(Resp$Class.name[1:111])) %>% 
+  dplyr::select(Class,everything())
+
+head(Virus2)
+```
+
+### For MMC, assign each group a value of -1 or +1 and define a hyperplane to max separation of the values. RECALL hyperplane dimension is one less than number of features.
+### The equation for hyperplanes are intercept + beta*x, because the hyperplane is technically a line. HOWEVER, it's different from a linear model as there's no error term for deviation of each point and equation is not optimized to predict y with min residual error. The MMC algorithm chooses (beta) coefficients to max orthogonal(or perpendicualr) distance from each point to the hyperplane.
+### In lm, residual error term is the distance along y-axis from observed value to prediction
+### IN SVM, each SV contains the multivariate distance of each value from hyperplane - ONE VALUE FOR EACH FEATURE - which also makes a right angle. Each observation has a support vector with 2 elements, one describing the distance from observation to hyperplane along xa-xis, and the other along the y-axis.
+### A con of MMC is that it's affected by overlapping points, such as a mislabelled point ending up within another's group. This is an issue for the MMC that the Support Vector Classifier works to solve.
+
+
+### In most biological scenarios, no one hyperplane is likely to separate all points between groups and one shouldn't stress about mislabelled points. Thus an algorithm will do a good job of separating groups.
+
+```{r}
+ggplot(aes(x = Betaine, y = C2, colour = Class, shape = Class), data = Virus2) + 
+  geom_point()
+```
+
+#### There is considerable overlap.
+
+### The SVC is a modification of the MMC that's less sensitiveto points that overlap on the wrong side of the hyperplane; it uses a tuning parameter to penalize overlapping points.
+### It's run with the svm function that uses the linear kernal hyperplane, not curved.
+### The cost parameer also has to be defined; higher cost in the model penalizes overlapping points (on the hyperplane margin) more
+
+```{r}
+Mod1 <- svm(Class~., data = Virus2, kernal = "linear", cost = 10, scale = F)
+summary(Mod1)
+```
+
+### Call is the model
+### 10 is the value of the cost parameter
+### The kernal is the math transformation analagous to a link function in a generalized lm.
+### Consider how the LDA is a special case of the RDA, with lambda = 1 and gamma = 0. Similarily, the VSC is a special case of the SVM when the kernal is linear.
+### The summary also gives the number of SV, which are data points influencing the linear equation affecting the hyperplane. Points further from the hyperplane are generally less informative and thus discarded. The cost parameter determines the width of the hyperplane margin, which defines a boundary across the hyperplane including all points used as a SV. This can be viewed for the early 2D hyperplane as a pair of lines parallel to the hyperplane and separated by a distance defined by the cost parameter. The space between = hyperplane margin. Points within = SV
+
+```{r}
+## Figure to show hyperplane, SV, and hyperplane margin
+set.seed(12345)
+PDat <- data.frame(Group = c(rep("A", 50), rep("B", 50)),
+                   X1 = rnorm(100, mean = 0),
+                   X2 = rnorm(100, mean = 0))
+PDat$X1[PDat$Group == "A"] <- PDat$X1[PDat$Group == "A"] - 4
+PDat$X2[PDat$Group == "A"] <- PDat$X2[PDat$Group == "A"] + 4
+
+ggplot(aes(x = X1, y = X2, colour = Group), data = PDat) + 
+  geom_point(aes(shape = Group)) + 
+  geom_abline(intercept = 5, slope = 2, colour = "lightblue", linewidth = 1.5) + 
+  geom_abline(intercept = 11, slope = 2, colour = "yellow", linewidth = 1.5, linetype = "dashed") + 
+  geom_abline(intercept = -1, slope = 2, colour = "pink", linewidth = 1.5, linetype = "dashed") + 
+  annotate("segment", x = -3, y = 2.45, xend = -1.81, yend = 1.4, 
+           arrow = arrow(length=unit(0.2, "cm")),
+           colour = "black", linewidth = 1.1)
+```
+
+#### This is an example of a 2d SVC, which is a 2D hyperplane (blue) with hyperplane margine(dashed lines) used to calculate SV like the one shown by the black arrow. The width of hyperplane margins are defined by cost parameter. Each point within the margin has a SV defining its distance from the hyperplane in each dimension.
+
+```{r}
+CatDat <- data.frame(Obs = Virus2$Class, Pred = predict(Mod1))
+table(CatDat)
+```
+
+### When choosing the value for the cost parameter best distinguishing the groups, use cross-validation.
+
+```{r}
+Mod2 <- svm(Class~., data = Virus2, kernal = "linear", cost = 0.1, scale = F)
+CatDat2 <- data.frame(Obs = Virus2$Class, Pred = predict(Mod2))
+table(CatDat2)
+```
+
+```{r}
+Mod2.5 <- svm(Class~., data = Virus2, kernal = "linear", cost = 100, scale = F)
+CatDat3 <- data.frame(Obs = Virus2$Class, Pred = predict(Mod2.5))
+table(CatDat3)
+```
+
+### The tune() function from e1071 controls the parameter tuning models, simialr to trainControl object used with rda(). It can perform a grid search by defining a range of cost value to test. Only one parameter is being tuned here, not 2 like in rda() so a grid search is faster.
+
+```{r}
+set.seed(123)
+Mod3 <- tune(svm, Class~., data = Virus2, kernal = "linear", ranges = list(cost = 10^c(-3:2)))
+
+Mod3$performances #this shows the performance of models ACROSS DIFFERENT COST PARAMETERS
+```
+
+```{r}
+ggplot(aes(x = cost, y = error), data = Mod3$performances) + 
+  geom_point() + 
+  scale_x_log10() ####IT'S SUPPOSED TO FORM A CORNER NEAR THE ORIGIN THE INITIAL MISTAKE SCREWED EVERYTHING UP!!!!!!!!
+```
+
+#### A log scale forms on the x-axis. Look for the model with the lowest error, a cost value close to log10(0) in this case, which is 1.
+
+
+### The data can again be split into training and validation sets - do every other row for the given category
+
+```{r}
+Train <- c(1:nrow(Virus2)) %% 2
+Validate <- 1-Train
+```
+
+### RECAP: SVM is similar to a SVC, but with a kernal function that transforms the original features before applying SV's to optimize the hyperplane. This makes it comparable to GLM link function.
+### There are 4 kernals in the svm() function: LINEAR, which is the support vector classifier, POLYNOMIAL, which is similar to quadratic, cubic, higher order polynomial regression, RADIAL BASIS, which lets the svm detect a radial structure, such as group A being a cloud of points around another group, and SIGMOID, which is intermediate to the polynomial and radial basis.
+
+```{r}
+set.seed(123)
+Mod4 <- tune(svm, Class~., data = Virus2, kernal = "sigmoid",
+             ranges = list(cost = 10^c(-3:2), gamma = c(0.5, 1, 2, 3, 4)))
+
+PDat <- Mod4$performances
+ggplot(aes(x = cost, y = gamma, size = error), data = PDat) + 
+  geom_point() + 
+  scale_x_log10() # the third column is supposed to have the shrinking points!!!!!!!!!!!!!!!!
+```
+
+#### Log scale along the x-axis, where the best models min error (smaller circles) when cost = 0.1 and gamma = 0.5 or 1.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
