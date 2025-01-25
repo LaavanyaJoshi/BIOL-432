@@ -1,0 +1,271 @@
+---
+title: "Week 4 - Decision Trees"
+output: html_notebook
+---
+
+
+### Both RDA and SVM may involve linear and non-linear predictors but they differ in how predictors are made. LDA predictors pass through data and find component axes to predict groups. SVC hyperplane passes between data to define boundaries that max support vectors to measure distance between points and hyperplane.
+### A 3rd category of classification models are Decision Trees, a type of supervised learning, as we're predicting a response variable from several features. The decision refers to categories OR THRESHOLD VALUES in the features that classify observarions into 2 groups, creating the branching structure.
+### Classification trees use categorical features while Regression trees use ordinal or continuous features. Computationally, these are similar and may be grouped as CART.
+### Cross-validation can optimize their predictions; optimize branching to reduce bias and error (NO TUNING PARAMETERS) and subsample both features/columns and subjects(rows) (NO DIMENSION REDUCTION).
+### Random subspaces are a sampling technique to retain all subjects but ranodmly sample features. Since features define dimensions, subsampling them reduces dimensionality.
+### Random patches is another subsampling way that randomly samples rows and columns.
+### The different subsets of data will likely make different trees, but this could also mean combining multiple trees into a single model: with ML this becomes ensemble learning.
+
+### Three example methods of ensemble learning: k-fold cross-validation; random subspaces, random patches.
+### Bagging = decrease variance of prediction by averaging across models, often with a weighted average.
+### Boosting = building on prior modles, emphasizing observaitons that were misclassified or suppsoedly had low prabability.
+### Stacking = like a meta-model that stacks on other models to define how best to combine them
+### The result are Random Forest models, among the most powerful in ML. The data need not be normalized as for PCA, DA, and SV; predictions can be made directly. Decision trees are also robust wth few assumptions, so features can be categorical, ordinal, normal, Possion, filled with outliers, etc. This they are popular in biology
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+source("http://bit.ly/theme_pub")
+theme_set(theme_pub())
+
+library(tree)
+library(rpart)
+library(gbm)
+library(randomForest)
+```
+
+```{r}
+Lythrum <- read.csv("https://colauttiLab.github.io/Data/ColauttiBarrett2013Data.csv", header = T)
+str(Lythrum)
+```
+
+#### Important points about this data: many traits were measured across 4 years; PC1 tends to correspond to variation among 20 genetic populations; PC2 tends to correspond to variation among 3 growing conditions under Site.
+
+```{r}
+Ldata <- Lythrum %>%
+  mutate(Site = as.factor(Site),
+         Pop = as.factor(Pop)) # check that the categorical response variables are factors
+```
+
+#### Break the data to predict pop and another for site.
+
+```{r}
+Popdata <- Ldata %>% 
+  select(-c("Ind", "Site", "Row", "Pos", "Mat", "Region"))
+Sitedata <- Ldata %>%
+  select(-c("Ind", "Site", "Row", "Pos", "Mat", "Region"))
+```
+
+#### With PC projection figures, vertical lines would split genotypes along PC1 or horizontal lines to separate growing sites along PC2. In decision trees, find a threshold value to distinguish groups of interest.
+
+
+
+### Use CART to predict whicj site a plant comes from based on phenotype.
+```{r}
+PopTree <- tree(Pop ~ ., data = Popdata)
+str(PopTree) # gives output with a list of complex items
+
+plot(PopTree)
+text(PopTree, cex = 0.7, adj = 0)
+?text
+```
+
+#### The tree tips show the predicted pop
+#### NOTE how the branch lengths differ along y-axis; longer branches represent predictions that classify more observations. Ex. FVeg07 distinguishes most northern populations (A, C, E) from southern ones (J, S, T). Pop's may repeat on the branch tips, reprsenting different paths to the same end point.
+### These trees are easy to interpret, without stats. Ex. The first bifurcation of FVeg07 < 45.75 means if 2007 Vegetative Height was less than 45.75, go left
+
+```{r}
+summary(PopTree) # summarize model and some performance metrics
+```
+
+### Top row shows model structure, then list of features in tree and number of terminal nodes.
+### Last two rows show metrics performance. Residual Mean Devariance ~ residual error of a stat model; a measure of deviance not explained by model, so lower values indicate better fit.
+### Misclassification error rate = proportion of misidentified observations; in this case, almost a quarter. With 6 categories, that means the subject is misclassified 83% of the time.
+
+```{r}
+CatDat <- data.frame(Obs = Popdata$Pop, Pred = predict(PopTree, Popdata, type = "class")) # confusion matrix to test model performance
+table(CatDat)
+```
+
+#### NOTE that pop's are sorted alphabetically, with origin from noth to south. Adjacent pop's are more similar while distant pop's are more different. The data seems to support the hypothesis.
+
+#### With 6 categories instead of 2, measure model accuracy by comparing correct classifications along diagonal with error shown by off-diagonal cells.
+
+```{r}
+Correct <- CatDat %>%
+  filter(Obs == Pred)
+nrow(Correct) / nrow(CatDat) # calculate correct classification rate
+```
+
+```{r}
+MisClass <- CatDat %>%
+  filter(Obs != Pred)
+nrow(MisClass) / nrow(CatDat) # when added to correct classification rate it should add up to 1
+```
+
+#### This mis-rate is higher than the one from summary(PopTree), because the summary was for 190 samples, not the full dataste of 432; the model performs poorer on data it;s not trained on. Use cross-validation to reduce bias and residual variance, by using random subspaces or patches to make a new ensemble model.
+
+
+### Use k-fold Cross Validation with CART ot see how the topology of the tree changes depending on input data. Comparing tree grown from different subjects/rows may shows that some nodes are unstable predictors. Prune them to make a tree with less variance
+
+
+```{r}
+PrunedPop <- cv.tree(PopTree, k = 24, FUN = prune.tree) # subset the rows into 24 different datasets, each with a perosnal fitted tree
+```
+
+### FUN removes least important nodes. Other pruning options include prune.misclass....
+
+```{r}
+plot(PrunedPop)
+text(PrunedPop, cex = 0.7, adj = 0)
+```
+
+```{r}
+CatDat2 <- data.frame(Obs = Popdata$Pop,
+                      Pred = predict(PrunedPop, Popdata, type = "class"))
+table(CatDat2)
+```
+
+```{r}
+MisClass <- CatDat2 %>% 
+  filter(Obs != Pred)
+nrow(MisClass) / nrow(CatDat2)
+```
+
+#### Despite having fewer branches, the misc. rate is lower, as there is less variance with a smaller dataset.
+
+### What happens if k-fold samples different features instead of subjects, or both? In addition to cross-validation, there is random subspaces and patches for subsampling.
+
+### Random forests are a type of ensemble learning, with more powerful predictions, but that are less interpretable.
+
+```{r}
+set.seed(123)
+PopForest <- randomForest(Pop ~., data = Popdata, ntree = 100, mtry = 3, nodesize = 5, importance = T)
+```
+
+### For a forest, missing data rows have to be addressed. Instead of replacing NA as in the past, inpute missing data with rfIMpute() function.
+
+```{r}
+set.seed(123)
+noNA <- complete.cases(Popdata) # make a vector of T/F to indicate which rows are complete, then this vector selects rows from dataset to be included
+PopForest <- randomForest(Pop ~., data = Popdata[noNA,], ntree = 100, mtry = 3, nodesize = 5, importance = T)
+
+# ntree = more trees may take longer to run
+# mtry = number of features to be included in each subtree; larger numbers may be needed for -omics
+# if replace = T, the same subjects can be samples more than once
+# nodesize = min number of nodes, which must be at least #features - 1; more nodes can improve prediction, but may make multiple paths to the same prediction
+# importance = T means an additional analysis has been added to assess each feature's relative importance; prevents the model from becoming a black box as it improves interpretability
+
+PopForest # gives class-scpecific error rates, calculated across rows and overall error rate from the confusion matrix
+
+PopForest$importance # indicates how well the trait predicts each subject; higher numbers indicate more impact of the trait on the model accuracy while negative values reduce the model performance for that group
+```
+
+
+### The example above uses bootstrap aggregating or bagging to make the forest; all model results are mixed and used equally. Boosting determines how each subsampled tree will contribute to the whole prediction; new models are applied to the residuals of old models.
+### AdaBoost adds weights to each individual tree, making some more influential to predictions
+### Gradient Boost adds to the AdaBoost method, but downstream trees are ft to residuals of upstream trees.
+
+```{r}
+set.seed(123)
+PopBoost <- gbm(Pop ~ ., data = Popdata,
+                distribution = "gaussian", # refers to error distribution, which is actually usually multinomial
+                n.trees = 25, interaction.depth = 2, cv.folds = 12)
+PopBoost
+summary(PopBoost) # similar to importance score, but here influence shows how much each featurs affects model accuracy, ranked from highest to lowest
+```
+
+```{r}
+CatDat3 <- data.frame(Obs = Popdata$Pop, 
+                      Pred = predict(PopBoost, Popdata, type = "response"))
+
+head(CatDat3)
+```
+
+#### Note that predictions are fractional. not categorical
+
+```{r}
+unique(CatDat3$Obs)
+
+unique(as.numeric(CatDat3$Obs)) # numbered in alphabetical order
+```
+
+
+```{r}
+CatDat3$ObsNum <- as.numeric(CatDat3$Obs)
+
+ggplot(aes(x = Pred, y = ObsNum), data = CatDat3) + # compare observed across predicted categories
+  geom_point(alpha = 0.3)
+```
+
+```{r}
+CatDat4 <- data.frame(Obs = CatDat3$ObsNum, Pred = round(CatDat3$Pred,0)) # round predictions to find the closest category to calculate confusion matrix and misclassification rate
+table(CatDat4)
+```
+
+```{r}
+MisClass <- CatDat4 %>% 
+  filter(Obs != Pred)
+nrow(MisClass) / nrow(CatDat4)
+```
+
+### This did not actually imporve the model much, a common limitation of smaller datasets. However, there may also be a bio explanation. The 6 populations may be isolated, but still have common genes, so overlap in trait distribution results in misclassification, as there's oly some rep-isolation and evolutionary divergence.
+
+
+### Random forests may be good to impute and predict missing data, by reversing the tree. First, identify which features have missing data
+
+```{r}
+impFeatures <- names(
+  Popdata[,colSums(is.na(Popdata)) > 0] # sums down each column and put everything in the names() function to give what columns we must input (almost every one)
+)
+print(impFeatures)
+```
+
+```{r}
+colSums(is.na(Popdata)) # checks how many are missing from each column, as too much missing data in a dolumn won't help in building a model
+
+dim(Popdata)
+```
+
+#### There will be issed inputting data with 25%+ of the data missing, so focus on columns with less than 70 missing values
+
+```{r}
+impFeatures <- c("Flwr08", "FVeg08", "HVeg08", "InfMass08")
+```
+
+#### Run a function where x is the dataframe contianing features with missing vales and y is a vector continaing classification variables. BOTH ARE PARAMETERS
+
+```{r}
+Imputed <- rfImpute(x = Popdata[, impFeatures],
+                    y = as.factor(Popdata$Pop))
+```
+
+#### Replace missing values
+
+```{r}
+head(Imputed)
+
+dim(Imputed)
+```
+
+```{r}
+FullData <- Popdata
+FullData[, impFeatures] <- Imputed[,impFeatures]
+
+colSums(is.na(FullData))
+
+dim(FullData)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
