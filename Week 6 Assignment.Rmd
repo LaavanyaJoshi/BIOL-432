@@ -1,0 +1,23 @@
+---
+title: "Week 6 Assignment"
+author: "Laavanya Joshi"
+date: "2025-02-10"
+output: html_document
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
